@@ -41,7 +41,7 @@ func (mc *MasterConn) Connect() (err os.Error) {
     }
 
     // FIXME timeout
-    println("dial tcp", mc.addr)
+    //println("dial tcp", mc.addr)
     mc.conn, err = net.Dial("tcp", mc.addr)
     if err != nil {
         println("connect to ", mc.addr, err.String())

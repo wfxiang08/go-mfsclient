@@ -6,11 +6,14 @@ import (
     "flag"
     "os"
     "log"
+    "time"
+    "runtime/pprof"
 )
 
 var addr = flag.String("addr", ":1718", "http service address")
 var mfsmaster = flag.String("mfsmaster", "mfsmaster", "the addr of mfsmaster")
 var subdir = flag.String("subdir", "/", "subdir in MFS as root")
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 type mooseFS struct {
     client *moosefs.Client
@@ -18,19 +21,33 @@ type mooseFS struct {
 
 func (fs *mooseFS) Open(name string) (http.File, os.Error) {
     f, err := fs.client.Open(name)
-    status := 200
-    if err != nil {
-        status = 404
-    }
-    log.Println(name, status)
+//    status := 200
+//    if err != nil {
+//        status = 404
+//    }
+//    log.Println(name, status)
     return f, err
 }
 
 func main() {
     flag.Parse()
+    
+    if *cpuprofile != "" {
+        f, err := os.Create(*cpuprofile)
+        if err != nil {
+            log.Fatal(err)
+        }
+        pprof.StartCPUProfile(f)
 
-    fs := mooseFS{moosefs.NewClient(*mfsmaster, *subdir)}
-    http.Handle("/", http.FileServer(&fs))
+        go func () {
+            time.Sleep(10e9)
+            pprof.StopCPUProfile()
+        }()
+    }
+    
+    fs := &mooseFS{moosefs.NewClient(*mfsmaster, *subdir)}
+    //fs := http.Dir("/mfs")
+    http.Handle("/", http.FileServer(fs))
 
     log.Println("Listen on", *addr)
     err := http.ListenAndServe(*addr, nil)

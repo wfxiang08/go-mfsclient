@@ -11,5 +11,3 @@ mfsserver: _obj/moosefs.a mfsserver.go
 	$(GC) mfsserver.go
 	$(LD) -o mfsserver mfsserver.$(O)
 
-clean:
-	rm -rf _obj/ _test/ *.6 mfsserver 6.out _test* _gotest*

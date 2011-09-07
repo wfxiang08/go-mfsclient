@@ -17,7 +17,9 @@ type csConn struct {
 }
 
 func (cs *csConn) Read(b []byte) (int, os.Error) {
-    return io.ReadFull(cs.Conn, b)
+    n, err := io.ReadFull(cs.Conn, b)
+//    fmt.Println("<<<", n, b[:n])
+    return n, err
 }
 
 var (
@@ -47,7 +49,7 @@ func newCSConn(csdata []byte, write bool) (conn *csConn, err os.Error) {
     mutex.Unlock()
 
     conn = new(csConn)
-    println("dial tcp", addr)
+//    println("dial tcp", addr)
     conn.Conn, err = net.Dial("tcp", addr)
     if err != nil {
         println("dial tcp", addr, err.String())
@@ -178,7 +180,7 @@ func (ck *Chunk) Read(buf []byte, offset uint32) (int, os.Error){
 
             n, err := cs.ReadBlock(ck.id, ck.version, buf, offset)
             if err != nil {
-                println("read from ", cs.RemoteAddr().String(), " failed:", err.String())
+            //    println("read from ", cs.RemoteAddr().String(), " failed:", err.String())
                 cs.Close()
             }else{
                 freeCSConn(cs)

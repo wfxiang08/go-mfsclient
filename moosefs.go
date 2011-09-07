@@ -2,15 +2,19 @@ package moosefs
 
 import (
     "os"
-    "strconv"
     "strings"
     "path"
     "sync"
 )
 
+const MASTER_CONNS = 4
+
 type Client struct {
-    mc *MasterConn
-    sync.Mutex //
+    mcs []*MasterConn
+    idx uint
+
+    cache_mutex sync.Mutex //
+    inode_cache map[uint32]map[string] *os.FileInfo
 
     cwd string
     curr_inode uint32
@@ -26,27 +30,36 @@ type File struct {
     offset int64
     rbuf []byte
     roff int64
+    woff  int64
+    wbuf []byte
 
     dircache []os.FileInfo
     dirnamecache []string
-
-    woff  int64
-    wbuf []byte
+    cscache map[uint64]*Chunk
 }
 
 func NewClient(addr, subdir string) (c *Client) {
     c = &Client{}
-    c.mc = NewMasterConn(addr, subdir)
+    c.mcs = make([]*MasterConn, MASTER_CONNS)
+    for i:=0; i<MASTER_CONNS; i++ {
+        c.mcs[i] = NewMasterConn(addr, subdir)
+    }
+    c.inode_cache = make(map[uint32]map[string] *os.FileInfo)
     c.cwd = "/"
     c.curr_inode = MFS_ROOT_ID 
     return c
 }
 
 func (c *Client) Close() {
-    c.Lock()
-    defer c.Unlock()
-    c.mc.Close()
-    c.mc = nil
+    for i:=0; i<MASTER_CONNS; i++ {
+        c.mcs[i].Close()
+    }
+    c.mcs = nil
+}
+
+func (c *Client) getMasterConn() *MasterConn {
+    c.idx += 1
+    return c.mcs[c.idx % MASTER_CONNS]
 }
 
 func (c *Client) Create(name string) (file *File, err os.Error) {
@@ -57,8 +70,33 @@ func (c *Client) Open(name string) (file *File, err os.Error) {
     return c.OpenFile(name, os.O_RDONLY, 0)
 }
 
-func (c *Client) lookup(name string, followSymlink bool) (uint32, os.Error) {
-    parent := c.curr_inode
+func (c *Client) lookup_inode(parent uint32, name string) (*os.FileInfo, os.Error) {
+    c.cache_mutex.Lock()
+    cache, ok := c.inode_cache[parent]
+    if !ok {
+        cache = make(map[string]*os.FileInfo)
+        c.inode_cache[parent] = cache 
+    }
+    fi, ok := cache[name]
+    c.cache_mutex.Unlock()
+
+    if !ok {
+        inode, attr, err := c.getMasterConn().Lookup(parent, name)
+        if err != nil {
+            return nil, err
+        }
+        fi = attrToFileInfo(inode, attr)
+        fi.Name = name
+
+        c.cache_mutex.Lock()
+        cache[name] = fi
+        c.cache_mutex.Unlock()
+    }
+    return fi, nil
+}
+
+func (c *Client) lookup(name string, followSymlink bool) (fi *os.FileInfo, parent uint32, err os.Error) {
+    parent = c.curr_inode
     ss := strings.Split(name, "/")
     if ss[0] == "" {
         parent = MFS_ROOT_ID
@@ -67,44 +105,46 @@ func (c *Client) lookup(name string, followSymlink bool) (uint32, os.Error) {
         if len(n) == 0 {
             continue
         }
-        inode, attr, err := c.mc.Lookup(parent, n)
+        fi, err = c.lookup_inode(parent, n)
         if err != nil {
-            return parent, err
+            return nil, parent, err
         }
-        type_ := attr[0]
-        if type_ == TYPE_SYMLINK && followSymlink {
-            target, err := c.mc.ReadLink(inode)
+        if fi.IsSymlink() && (i<len(ss)-1 || followSymlink) {
+            target, err := c.getMasterConn().ReadLink(uint32(fi.Ino))
             if err != nil {
-                return 0, os.NewError("read link: " + err.String())
+                return nil, parent, os.NewError("read link: " + err.String())
             }
-            // TODO
             if !strings.HasPrefix(target, "/") {
                 target = path.Join(strings.Join(ss[:i], "/"), target)
             }
-            inode, err = c.lookup(target, true)
+            fi, _, err = c.lookup(target, true)
             if err != nil {
-                return 0, os.NewError("follow :" + target + err.String())
+                return nil, parent, os.NewError("follow :" + target + err.String())
             }
         }
-        parent = inode
+        parent = uint32(fi.Ino)
     }
-    return parent, nil
+    if parent == MFS_ROOT_ID {
+        fi, err = c.getMasterConn().GetAttr(parent)
+        if err != nil {
+            return nil, parent, err
+        }
+    }
+    return fi, parent, nil
 }
 
 func (c *Client) OpenFile(name string, flag int, perm uint32) (file *File, err os.Error) {
-    inode, err := c.lookup(name, true)
+    fi, parent, err := c.lookup(name, true)
     if err != nil {
         if e,ok := err.(Error); ok && e == Error(ERROR_ENOENT) {
             if flag & os.O_CREATE > 0 {
                 if !strings.HasPrefix(name, "/") {
                     _,name = path.Split(name)
                 }
-                fi, err := c.mc.Mknod(inode, name, TYPE_FILE, uint16(perm), 0)
-                //println("create ", inode)
+                fi, err = c.getMasterConn().Mknod(parent, name, TYPE_FILE, uint16(perm), 0)
                 if err != nil {
                     return nil, os.NewError("mknod failed: " + err.String())
                 }
-                inode = uint32(fi.Ino)
             }else {
                 return nil, err
             }
@@ -113,48 +153,43 @@ func (c *Client) OpenFile(name string, flag int, perm uint32) (file *File, err o
         }
     }else{
         if (flag & os.O_TRUNC) > 0 {
-            _, err := c.mc.Truncate(inode, 0, 0)
+            fi, err = c.getMasterConn().Truncate(uint32(fi.Ino), 0, 0)
             if err != nil {
-                return nil, os.NewError("truncate failed: " + strconv.Itoa(int(inode)) + err.String())
+                return nil, os.NewError("truncate failed: " + err.String())
             }
         }
     }
-
-    /*f := uint8(0)
-    if flag & os.O_WRONLY > 0 {
-        f = WANT_WRITE
-    }else if flag & os.O_RDWR > 0 {
-        f = WANT_READ | WANT_WRITE
-    }
-  
-    attr, err := c.mc.OpenCheck(inode, f) 
-    if err != nil {
-        return nil, err
+    
+    /*
+    if !fi.IsDirectory() {
+        f := uint8(WANT_READ)
+        if flag & os.O_WRONLY > 0 {
+            f = WANT_WRITE
+        } else if flag & os.O_RDWR > 0 {
+            f = WANT_READ | WANT_WRITE
+        }
+      
+        _, err := c.getMasterConn().OpenCheck(uint32(fi.Ino), f)
+        if err != nil {
+            return nil, err
+        }
     }*/
     
     file = &File{}
     file.path = name
-    file.inode = inode
+    file.inode = uint32(fi.Ino)
+    file.cscache = make(map[uint64]*Chunk)
     file.client = c
-//    file.info = attrToFileInfo(inode, attr)
+    file.info = fi
     return file, nil
 }
 
 func (c *Client) Link(oldname, newname string) os.Error {
-    old_inode, err := c.lookup(oldname, true)
+    fi, _, err := c.lookup(oldname, true)
     if err != nil {
         return os.NewError(oldname + " not exists")
     }
-    dir := c.cwd
-    name := newname
-    if strings.HasPrefix(newname, "/") {
-        dir,name = path.Split(newname)
-    }
-    parent_inode, err := c.lookup(dir, true)
-    if err != nil {
-        return os.NewError("parent not exists")
-    }
-    _, _, err = c.mc.Link(old_inode, parent_inode, name)
+    _, _, err = c.getMasterConn().Link(uint32(fi.Ino), c.curr_inode, newname)
     return err
 }
 
@@ -164,10 +199,11 @@ func (c *Client) getParent(name string) (uint32, string, os.Error) {
         var dir string
         dir,name = path.Split(name)
         var err os.Error
-        parent_inode, err = c.lookup(dir, true)
+        fi, _, err := c.lookup(dir, true)
         if err != nil {
             return 0, name, err
         }
+        parent_inode = uint32(fi.Ino)
     }
     return parent_inode, name, nil
 }
@@ -177,7 +213,7 @@ func (c *Client) Mkdir(name string, perm uint32) (err os.Error) {
     if err != nil {
         return err
     }
-    _, err = c.mc.Mkdir(parent_inode, name, uint16(perm))
+    _, err = c.getMasterConn().Mkdir(parent_inode, name, uint16(perm))
     return err
 }
 
@@ -190,7 +226,7 @@ func (c *Client) Remove(name string) os.Error {
     if err != nil {
         return err
     }
-    return c.mc.Unlink(parent_inode, name)
+    return c.getMasterConn().Unlink(parent_inode, name)
 }
 
 func (c *Client) RemoveAll(path string) os.Error {return os.NewError("no impl")}
@@ -204,7 +240,7 @@ func (c *Client) Rename(oldname, newname string) os.Error {
     if err != nil {
         return err
     }
-    return c.mc.Rename(parent_inode1, name1, parent_inode2, name2)
+    return c.getMasterConn().Rename(parent_inode1, name1, parent_inode2, name2)
 }
 
 func (c *Client) Symlink(oldname, newname string) os.Error {
@@ -212,7 +248,7 @@ func (c *Client) Symlink(oldname, newname string) os.Error {
     if err != nil {
         return err
     }
-    _, err = c.mc.Symlink(parent_inode, name, oldname)
+    _, err = c.getMasterConn().Symlink(parent_inode, name, oldname)
     return err
 }
 
@@ -230,11 +266,11 @@ func (c *Client) Stat(name string) (fi *os.FileInfo, err os.Error) {
 }
 
 func (c *Client) Lstat(name string) (fi *os.FileInfo, err os.Error) {
-    inode, err := c.lookup(name, false)
+    fi, _, err = c.lookup(name, false)
     if err != nil {
         return nil, err
     }
-    return c.mc.GetAttr(inode)
+    return fi, nil
 }
 
 func (c *Client) Readlink(name string) (string, os.Error) {
@@ -265,7 +301,7 @@ func (c *Client) Getwd() (string, os.Error) {
 }
 
 func (c *Client) Chdir(dir string) os.Error {
-    inode, err := c.lookup(dir, true)
+    fi, _, err := c.lookup(dir, true)
     if err != nil {
         return err
     }
@@ -274,7 +310,7 @@ func (c *Client) Chdir(dir string) os.Error {
     }else{
         c.cwd = path.Join(c.cwd, dir)
     }
-    c.curr_inode = inode
+    c.curr_inode = uint32(fi.Ino)
     return nil
 }
 
@@ -284,6 +320,7 @@ func (f *File) Close() os.Error {
     if len(f.wbuf) > 0 {
         return f.Sync()
     }
+    f.offset = 0
     return nil
 }
 
@@ -337,10 +374,16 @@ func (f *File) ReadAt(b []byte, offset uint64) (n int, err os.Error) {
     for {
         indx := offset / CHUNK_SIZE
         off := offset % CHUNK_SIZE
-        info, err := f.client.mc.ReadChunk(f.inode, uint32(indx))
-        if err != nil {
-            return got, err
+
+        info, ok := f.cscache[indx]
+        if !ok {
+            info, err = f.client.getMasterConn().ReadChunk(f.inode, uint32(indx))
+            if err != nil {
+                return got, err
+            }
+            f.cscache[indx] = info
         }
+
         size := min(len(b)-got, int(info.length-off))
         if size <= 0 {
             return got, os.EOF
@@ -378,13 +421,13 @@ func (f *File) Stat() (fi *os.FileInfo, err os.Error) {
     if f.info != nil {
         return f.info, nil
     }
-    f.info, err = f.client.mc.GetAttr(f.inode)
+    f.info, err = f.client.getMasterConn().GetAttr(f.inode)
     return f.info, err
 }
 
 func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
     if f.dircache == nil {
-        fi, err = f.client.mc.GetDirPlus(f.inode)
+        fi, err = f.client.getMasterConn().GetDirPlus(f.inode)
         if err != nil {
             return nil, err
         }
@@ -407,7 +450,7 @@ func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
 
 func (f *File) Readdirnames(count int) (names []string, err os.Error) {
     if f.dirnamecache == nil {
-        names, err = f.client.mc.GetDir(f.inode)
+        names, err = f.client.getMasterConn().GetDir(f.inode)
         if err != nil {
             return nil, err
         }
@@ -435,7 +478,7 @@ func (f *File) Chmod(mode uint32) os.Error {
 func (f *File) Sync() (err os.Error) {
     for len(f.wbuf) > 0 {
         chindx := f.woff >> 26
-        info, err := f.client.mc.WriteChunk(f.inode, uint32(chindx))
+        info, err := f.client.getMasterConn().WriteChunk(f.inode, uint32(chindx))
         if err != nil {
             return os.NewError("write chunk failed:"+ err.String())
         }
@@ -447,11 +490,11 @@ func (f *File) Sync() (err os.Error) {
         }
 
         length := off + int64(size)
-        err = f.client.mc.WriteEnd(info.id, f.inode, uint64(length))
+        err = f.client.getMasterConn().WriteEnd(info.id, f.inode, uint64(length))
         if err != nil {
             return os.NewError("write end to ms: " + err.String())
         }
-
+        f.cscache[info.id] = nil, false
         f.wbuf = f.wbuf[size:]
         f.woff += int64(size)
     }
@@ -459,7 +502,7 @@ func (f *File) Sync() (err os.Error) {
 }
 
 func (f *File) Truncate(size int64) (err os.Error) {
-    _, err =  f.client.mc.Truncate(f.inode, 1, size)
+    _, err =  f.client.getMasterConn().Truncate(f.inode, 1, size)
     f.woff = 0
     f.wbuf = nil
     return err

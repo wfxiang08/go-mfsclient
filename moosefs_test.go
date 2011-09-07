@@ -51,7 +51,7 @@ func TestAPI(t *testing.T) {
         t.Error("read fail", err.String())
     }
     if n!=5 || string(b[:n]) != "hello" {
-        t.Error("content error", b[:n])
+        t.Error("content error", n, b[:n])
     }
     f.Close()
 
