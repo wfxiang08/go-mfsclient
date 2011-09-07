@@ -1,0 +1,4 @@
+this is a client library for MooseFS [1], and a web server (mfsserver) 
+to serve files from MooseFS.
+
+[1] http://www.moosefs.org/
