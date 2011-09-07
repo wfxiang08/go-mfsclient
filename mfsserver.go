@@ -21,17 +21,17 @@ type mooseFS struct {
 
 func (fs *mooseFS) Open(name string) (http.File, os.Error) {
     f, err := fs.client.Open(name)
-//    status := 200
-//    if err != nil {
-//        status = 404
-//    }
-//    log.Println(name, status)
+    //    status := 200
+    //    if err != nil {
+    //        status = 404
+    //    }
+    //    log.Println(name, status)
     return f, err
 }
 
 func main() {
     flag.Parse()
-    
+
     if *cpuprofile != "" {
         f, err := os.Create(*cpuprofile)
         if err != nil {
@@ -39,12 +39,12 @@ func main() {
         }
         pprof.StartCPUProfile(f)
 
-        go func () {
+        go func() {
             time.Sleep(10e9)
             pprof.StopCPUProfile()
         }()
     }
-    
+
     fs := &mooseFS{moosefs.NewClient(*mfsmaster, *subdir)}
     //fs := http.Dir("/mfs")
     http.Handle("/", http.FileServer(fs))

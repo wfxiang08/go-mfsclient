@@ -18,12 +18,12 @@ type csConn struct {
 
 func (cs *csConn) Read(b []byte) (int, os.Error) {
     n, err := io.ReadFull(cs.Conn, b)
-//    fmt.Println("<<<", n, b[:n])
+    //    fmt.Println("<<<", n, b[:n])
     return n, err
 }
 
 var (
-    pool = map[string] []*csConn{}
+    pool  = map[string][]*csConn{}
     mutex sync.Mutex
 )
 
@@ -49,10 +49,8 @@ func newCSConn(csdata []byte, write bool) (conn *csConn, err os.Error) {
     mutex.Unlock()
 
     conn = new(csConn)
-//    println("dial tcp", addr)
     conn.Conn, err = net.Dial("tcp", addr)
     if err != nil {
-        println("dial tcp", addr, err.String())
         return nil, err
     }
     return conn, nil
@@ -62,12 +60,11 @@ func freeCSConn(conn *csConn) {
     if conn == nil {
         return
     }
-    
+
     mutex.Lock()
     defer mutex.Unlock()
 
     addr := conn.RemoteAddr().String()
-    //println("free", addr)
     cs, ok := pool[addr]
     if !ok {
         pool[addr] = nil
@@ -78,20 +75,20 @@ func freeCSConn(conn *csConn) {
 func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset uint32) (n int, err os.Error) {
     size := uint32(len(buf))
     msg := pack(CUTOCS_READ, chunkid, version, offset, size)
-    
+
     if _, err = cs.Write(msg); err != nil {
         return
     }
-    
+
     for {
         b := make([]byte, 8)
-        if _,err := cs.Read(b); err != nil {
-            return 
+        if _, err := cs.Read(b); err != nil {
+            return
         }
         var cmd, l uint32
         read(bytes.NewBuffer(b), &cmd, &l)
         switch cmd {
-        case CSTOCU_READ_STATUS: 
+        case CSTOCU_READ_STATUS:
             if l != 9 {
                 return n, os.NewError("readblock: READ_STATUS incorrect message size")
             }
@@ -109,7 +106,7 @@ func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset u
             }
             return n, nil
         case CSTOCU_READ_DATA:
-            if l<20 {
+            if l < 20 {
                 return n, os.NewError("readblock; READ_DATA incorrect message size")
             }
             data := make([]byte, 20)
@@ -119,12 +116,12 @@ func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset u
             r := bytes.NewBuffer(data)
             var cid uint64
             var blockno, blockoffset uint16
-            var blocksize,blockcrc uint32
+            var blocksize, blockcrc uint32
             read(r, &cid, &blockno, &blockoffset, &blocksize, &blockcrc)
             if cid != chunkid {
                 return n, os.NewError("readblock; READ_DATA incorrect chunkid ")
             }
-            if l != 20 + blocksize {
+            if l != 20+blocksize {
                 return n, os.NewError("readblock; READ_DATA incorrect message size ")
             }
             if blocksize == 0 { // FIXME
@@ -133,7 +130,7 @@ func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset u
             if blockno != uint16(offset>>16) {
                 return n, os.NewError("readblock; READ_DATA incorrect block number")
             }
-            if blockoffset != uint16(offset & 0xFFFF) {
+            if blockoffset != uint16(offset&0xFFFF) {
                 return n, os.NewError("readblock; READ_DATA incorrect block offset")
             }
             breq := 65536 - uint32(blockoffset)
@@ -143,7 +140,7 @@ func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset u
             if blocksize != breq {
                 return n, os.NewError("readblock; READ_DATA incorrect block size")
             }
-            data = buf[n:n+int(blocksize)]
+            data = buf[n : n+int(blocksize)]
             if _, err = cs.Read(data); err != nil {
                 return n, err
             }
@@ -161,28 +158,25 @@ func (cs *csConn) ReadBlock(chunkid uint64, version uint32, buf []byte, offset u
 }
 
 type Chunk struct {
-    id     uint64
-    length uint64
+    id      uint64
+    length  uint64
     version uint32
-    csdata []byte
+    csdata  []byte
 }
 
-func (ck *Chunk) Read(buf []byte, offset uint32) (int, os.Error){
+func (ck *Chunk) Read(buf []byte, offset uint32) (int, os.Error) {
     csdata := ck.csdata
-//    println("read chunk", ck.id, ck.length, offset)
     for len(csdata) > 0 {
-        for try:=0; try<2; try++ { 
+        for try := 0; try < 2; try++ {
             cs, err := newCSConn(csdata, false)
             if err != nil {
-                println("get conn failed", err.String())
                 break
             }
 
             n, err := cs.ReadBlock(ck.id, ck.version, buf, offset)
             if err != nil {
-            //    println("read from ", cs.RemoteAddr().String(), " failed:", err.String())
                 cs.Close()
-            }else{
+            } else {
                 freeCSConn(cs)
                 return n, err
             }
@@ -203,7 +197,7 @@ func (ck *Chunk) Write(buf []byte, offset uint32) (int, os.Error) {
     if err != nil {
         return 0, err
     }
-    
+
     writeid := uint32(0)
     pos := uint16(offset>>16) & 0x3FF
     from := int(offset & 0xFFFF)
@@ -212,7 +206,7 @@ func (ck *Chunk) Write(buf []byte, offset uint32) (int, os.Error) {
     w := 0
     for size > 0 {
         if size > 0x10000-from {
-            w = 0x10000-from
+            w = 0x10000 - from
         } else {
             w = size
         }
@@ -228,7 +222,7 @@ func (ck *Chunk) Write(buf []byte, offset uint32) (int, os.Error) {
     return start, nil
 }
 
-func (cs *csConn) WriteBlock(chunkid uint64, writeid uint32, blockno,offset uint16, buf []byte) os.Error {
+func (cs *csConn) WriteBlock(chunkid uint64, writeid uint32, blockno, offset uint16, buf []byte) os.Error {
     size := uint32(len(buf))
     crc := crc32.ChecksumIEEE(buf)
     msg := pack(CUTOCS_WRITE_DATA, chunkid, writeid, blockno, offset, size, crc, buf)
@@ -236,8 +230,8 @@ func (cs *csConn) WriteBlock(chunkid uint64, writeid uint32, blockno,offset uint
         return os.NewError("write block " + err.String())
     }
     rbuf := make([]byte, 21)
-    n, err := cs.Read(rbuf); 
-    if err != nil || n<21{
+    n, err := cs.Read(rbuf)
+    if err != nil || n < 21 {
         return err
     }
     var cmd, leng, wid uint32

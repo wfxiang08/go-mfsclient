@@ -1,4 +1,3 @@
-
 package moosefs
 
 import (
@@ -6,12 +5,12 @@ import (
 )
 
 var (
-    stat map[uint32] int
+    stat   map[uint32]int
     smutex sync.Mutex
 )
 
 func init() {
-    stat = make(map[uint32] int)
+    stat = make(map[uint32]int)
 }
 
 func getOpCnt(ip uint32) int {

@@ -14,44 +14,44 @@ type Client struct {
     idx uint
 
     cache_mutex sync.Mutex //
-    inode_cache map[uint32]map[string] *os.FileInfo
+    inode_cache map[uint32]map[string]*os.FileInfo
 
-    cwd string
+    cwd        string
     curr_inode uint32
 }
 
 type File struct {
-    path string
+    path  string
     inode uint32
-    info *os.FileInfo
+    info  *os.FileInfo
 
     client *Client
-    
-    offset int64
-    rbuf []byte
-    roff int64
-    woff  int64
-    wbuf []byte
 
-    dircache []os.FileInfo
+    offset int64
+    rbuf   []byte
+    roff   int64
+    woff   int64
+    wbuf   []byte
+
+    dircache     []os.FileInfo
     dirnamecache []string
-    cscache map[uint64]*Chunk
+    cscache      map[uint64]*Chunk
 }
 
 func NewClient(addr, subdir string) (c *Client) {
     c = &Client{}
     c.mcs = make([]*MasterConn, MASTER_CONNS)
-    for i:=0; i<MASTER_CONNS; i++ {
+    for i := 0; i < MASTER_CONNS; i++ {
         c.mcs[i] = NewMasterConn(addr, subdir)
     }
-    c.inode_cache = make(map[uint32]map[string] *os.FileInfo)
+    c.inode_cache = make(map[uint32]map[string]*os.FileInfo)
     c.cwd = "/"
-    c.curr_inode = MFS_ROOT_ID 
+    c.curr_inode = MFS_ROOT_ID
     return c
 }
 
 func (c *Client) Close() {
-    for i:=0; i<MASTER_CONNS; i++ {
+    for i := 0; i < MASTER_CONNS; i++ {
         c.mcs[i].Close()
     }
     c.mcs = nil
@@ -59,11 +59,11 @@ func (c *Client) Close() {
 
 func (c *Client) getMasterConn() *MasterConn {
     c.idx += 1
-    return c.mcs[c.idx % MASTER_CONNS]
+    return c.mcs[c.idx%MASTER_CONNS]
 }
 
 func (c *Client) Create(name string) (file *File, err os.Error) {
-    return c.OpenFile(name, os.O_RDWR | os.O_CREATE | os.O_TRUNC, 0666)
+    return c.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 }
 
 func (c *Client) Open(name string) (file *File, err os.Error) {
@@ -75,7 +75,7 @@ func (c *Client) lookup_inode(parent uint32, name string) (*os.FileInfo, os.Erro
     cache, ok := c.inode_cache[parent]
     if !ok {
         cache = make(map[string]*os.FileInfo)
-        c.inode_cache[parent] = cache 
+        c.inode_cache[parent] = cache
     }
     fi, ok := cache[name]
     c.cache_mutex.Unlock()
@@ -101,7 +101,7 @@ func (c *Client) lookup(name string, followSymlink bool) (fi *os.FileInfo, paren
     if ss[0] == "" {
         parent = MFS_ROOT_ID
     }
-    for i,n := range ss {
+    for i, n := range ss {
         if len(n) == 0 {
             continue
         }
@@ -109,7 +109,7 @@ func (c *Client) lookup(name string, followSymlink bool) (fi *os.FileInfo, paren
         if err != nil {
             return nil, parent, err
         }
-        if fi.IsSymlink() && (i<len(ss)-1 || followSymlink) {
+        if fi.IsSymlink() && (i < len(ss)-1 || followSymlink) {
             target, err := c.getMasterConn().ReadLink(uint32(fi.Ino))
             if err != nil {
                 return nil, parent, os.NewError("read link: " + err.String())
@@ -136,22 +136,22 @@ func (c *Client) lookup(name string, followSymlink bool) (fi *os.FileInfo, paren
 func (c *Client) OpenFile(name string, flag int, perm uint32) (file *File, err os.Error) {
     fi, parent, err := c.lookup(name, true)
     if err != nil {
-        if e,ok := err.(Error); ok && e == Error(ERROR_ENOENT) {
-            if flag & os.O_CREATE > 0 {
+        if e, ok := err.(Error); ok && e == Error(ERROR_ENOENT) {
+            if flag&os.O_CREATE > 0 {
                 if !strings.HasPrefix(name, "/") {
-                    _,name = path.Split(name)
+                    _, name = path.Split(name)
                 }
                 fi, err = c.getMasterConn().Mknod(parent, name, TYPE_FILE, uint16(perm), 0)
                 if err != nil {
                     return nil, os.NewError("mknod failed: " + err.String())
                 }
-            }else {
+            } else {
                 return nil, err
             }
-        }else{
+        } else {
             return nil, os.NewError("lookup failed: " + err.String())
         }
-    }else{
+    } else {
         if (flag & os.O_TRUNC) > 0 {
             fi, err = c.getMasterConn().Truncate(uint32(fi.Ino), 0, 0)
             if err != nil {
@@ -159,22 +159,22 @@ func (c *Client) OpenFile(name string, flag int, perm uint32) (file *File, err o
             }
         }
     }
-    
+
     /*
-    if !fi.IsDirectory() {
-        f := uint8(WANT_READ)
-        if flag & os.O_WRONLY > 0 {
-            f = WANT_WRITE
-        } else if flag & os.O_RDWR > 0 {
-            f = WANT_READ | WANT_WRITE
-        }
-      
-        _, err := c.getMasterConn().OpenCheck(uint32(fi.Ino), f)
-        if err != nil {
-            return nil, err
-        }
-    }*/
-    
+       if !fi.IsDirectory() {
+           f := uint8(WANT_READ)
+           if flag & os.O_WRONLY > 0 {
+               f = WANT_WRITE
+           } else if flag & os.O_RDWR > 0 {
+               f = WANT_READ | WANT_WRITE
+           }
+
+           _, err := c.getMasterConn().OpenCheck(uint32(fi.Ino), f)
+           if err != nil {
+               return nil, err
+           }
+       }*/
+
     file = &File{}
     file.path = name
     file.inode = uint32(fi.Ino)
@@ -197,7 +197,7 @@ func (c *Client) getParent(name string) (uint32, string, os.Error) {
     parent_inode := c.curr_inode
     if strings.HasPrefix(name, "/") {
         var dir string
-        dir,name = path.Split(name)
+        dir, name = path.Split(name)
         var err os.Error
         fi, _, err := c.lookup(dir, true)
         if err != nil {
@@ -229,7 +229,7 @@ func (c *Client) Remove(name string) os.Error {
     return c.getMasterConn().Unlink(parent_inode, name)
 }
 
-func (c *Client) RemoveAll(path string) os.Error {return os.NewError("no impl")}
+func (c *Client) RemoveAll(path string) os.Error { return os.NewError("no impl") }
 
 func (c *Client) Rename(oldname, newname string) os.Error {
     parent_inode1, name1, err := c.getParent(oldname)
@@ -307,7 +307,7 @@ func (c *Client) Chdir(dir string) os.Error {
     }
     if strings.HasPrefix(dir, "/") {
         c.cwd = dir
-    }else{
+    } else {
         c.cwd = path.Join(c.cwd, dir)
     }
     c.curr_inode = uint32(fi.Ino)
@@ -339,8 +339,8 @@ func (f *File) Len() int64 {
 func (f *File) Read(b []byte) (n int, err os.Error) {
     got := 0
     for got < len(b) {
-        if f.offset >= f.roff && f.offset < f.roff + int64(len(f.rbuf)) {
-            n := min(len(b)-got, int(f.roff + int64(len(f.rbuf)) - f.offset))
+        if f.offset >= f.roff && f.offset < f.roff+int64(len(f.rbuf)) {
+            n := min(len(b)-got, int(f.roff+int64(len(f.rbuf))-f.offset))
             copy(b[got:got+n], f.rbuf[f.offset-f.roff:f.offset-f.roff+int64(n)])
             f.offset += int64(n)
             got += n
@@ -357,7 +357,6 @@ func (f *File) Read(b []byte) (n int, err os.Error) {
         }
         f.rbuf = make([]byte, rsize)
         n, err := f.ReadAt(f.rbuf, uint64(f.offset))
-//        println("readat", f.offset, rsize, n, err)
         if n == 0 {
             return got, err
         }
@@ -367,7 +366,7 @@ func (f *File) Read(b []byte) (n int, err os.Error) {
     return
 }
 
-const CHUNK_SIZE = 64*1024*1024
+const CHUNK_SIZE = 64 * 1024 * 1024
 
 func (f *File) ReadAt(b []byte, offset uint64) (n int, err os.Error) {
     got := 0
@@ -432,7 +431,7 @@ func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
             return nil, err
         }
         f.dircache = fi
-    }else{
+    } else {
         fi = f.dircache
     }
 
@@ -444,7 +443,6 @@ func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
         fi = fi[:count]
     }
     f.offset += int64(len(fi))
-    //println("Readdir", f.path, f.offset, count, len(fi))
     return
 }
 
@@ -455,7 +453,7 @@ func (f *File) Readdirnames(count int) (names []string, err os.Error) {
             return nil, err
         }
         f.dirnamecache = names
-    }else{
+    } else {
         names = f.dirnamecache
     }
 
@@ -480,7 +478,7 @@ func (f *File) Sync() (err os.Error) {
         chindx := f.woff >> 26
         info, err := f.client.getMasterConn().WriteChunk(f.inode, uint32(chindx))
         if err != nil {
-            return os.NewError("write chunk failed:"+ err.String())
+            return os.NewError("write chunk failed:" + err.String())
         }
         off := f.woff & 0x3ffffff
         size := min(len(f.wbuf), int(1<<26-off))
@@ -502,7 +500,7 @@ func (f *File) Sync() (err os.Error) {
 }
 
 func (f *File) Truncate(size int64) (err os.Error) {
-    _, err =  f.client.getMasterConn().Truncate(f.inode, 1, size)
+    _, err = f.client.getMasterConn().Truncate(f.inode, 1, size)
     f.woff = 0
     f.wbuf = nil
     return err
@@ -526,7 +524,7 @@ func (f *File) Write(b []byte) (n int, err os.Error) {
 }
 
 func (f *File) WriteAt(b []byte, off int64) (n int, err os.Error) {
-    if off < f.woff || off > f.woff + int64(len(f.wbuf)) {
+    if off < f.woff || off > f.woff+int64(len(f.wbuf)) {
         if e := f.Sync(); e != nil {
             return 0, e
         }

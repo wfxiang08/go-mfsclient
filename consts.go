@@ -1,10 +1,10 @@
 package moosefs
 
 const (
-    VERSION_ANY = 0;
-    CRC_POLY = 0xEDB88320
-    MFS_ROOT_ID = 1
-    MFS_NAME_MAX = 255
+    VERSION_ANY       = 0
+    CRC_POLY          = 0xEDB88320
+    MFS_ROOT_ID       = 1
+    MFS_NAME_MAX      = 255
     MFS_MAX_FILE_SIZE = 0x20000000000
 )
 
@@ -13,74 +13,74 @@ const VERSION = uint32(0x01F1F5)
 
 const GETDIR_FLAG_WITHATTR = 0x01
 
- //type for readdir command 
+//type for readdir command 
 const (
-    TYPE_FILE = 'f'
-    TYPE_SYMLINK = 'l'
+    TYPE_FILE      = 'f'
+    TYPE_SYMLINK   = 'l'
     TYPE_DIRECTORY = 'd'
-    TYPE_FIFO = 'q'
-    TYPE_BLOCKDEV = 'b'
-    TYPE_CHARDEV = 'c'
-    TYPE_SOCKET = 's'
-    TYPE_TRASH = 't'
-    TYPE_RESERVED = 'r'
-    TYPE_UNKNOWN = '?' 
+    TYPE_FIFO      = 'q'
+    TYPE_BLOCKDEV  = 'b'
+    TYPE_CHARDEV   = 'c'
+    TYPE_SOCKET    = 's'
+    TYPE_TRASH     = 't'
+    TYPE_RESERVED  = 'r'
+    TYPE_UNKNOWN   = '?'
 )
 
 // status code
 const (
- STATUS_OK = iota          // OK
+    STATUS_OK = iota // OK
 
- ERROR_EPERM               // Operation not permitted
- ERROR_ENOTDIR             // Not a directory
- ERROR_ENOENT              // No such file or directory
- ERROR_EACCES              // Permission denied
- ERROR_EEXIST              // File exists
- ERROR_EINVAL              // Invalid argument
- ERROR_ENOTEMPTY           // Directory not empty
- ERROR_CHUNKLOST           // Chunk lost
- ERROR_OUTOFMEMORY         // Out of memory
+    ERROR_EPERM       // Operation not permitted
+    ERROR_ENOTDIR     // Not a directory
+    ERROR_ENOENT      // No such file or directory
+    ERROR_EACCES      // Permission denied
+    ERROR_EEXIST      // File exists
+    ERROR_EINVAL      // Invalid argument
+    ERROR_ENOTEMPTY   // Directory not empty
+    ERROR_CHUNKLOST   // Chunk lost
+    ERROR_OUTOFMEMORY // Out of memory
 
- ERROR_INDEXTOOBIG         // Index too big
- ERROR_LOCKED              // Chunk locked
- ERROR_NOCHUNKSERVERS      // No chunk servers
- ERROR_NOCHUNK             // No such chunk
- ERROR_CHUNKBUSY           // Chunk is busy
- ERROR_REGISTER            // Incorrect register BLOB
- ERROR_NOTDONE             // None of chunk servers performed requested operation
- ERROR_NOTOPENED           // File not opened
- ERROR_NOTSTARTED          // Write not started
+    ERROR_INDEXTOOBIG    // Index too big
+    ERROR_LOCKED         // Chunk locked
+    ERROR_NOCHUNKSERVERS // No chunk servers
+    ERROR_NOCHUNK        // No such chunk
+    ERROR_CHUNKBUSY      // Chunk is busy
+    ERROR_REGISTER       // Incorrect register BLOB
+    ERROR_NOTDONE        // None of chunk servers performed requested operation
+    ERROR_NOTOPENED      // File not opened
+    ERROR_NOTSTARTED     // Write not started
 
- ERROR_WRONGVERSION        // Wrong chunk version
- ERROR_CHUNKEXIST          // Chunk already exists
- ERROR_NOSPACE             // No space left
- ERROR_IO                  // IO error
- ERROR_BNUMTOOBIG          // Incorrect block number
- ERROR_WRONGSIZE           // Incorrect size
- ERROR_WRONGOFFSET         // Incorrect offset
- ERROR_CANTCONNECT         // Can't connect
- ERROR_WRONGCHUNKID        // Incorrect chunk id
- ERROR_DISCONNECTED        // Disconnected
- ERROR_CRC                 // CRC error
- ERROR_DELAYED             // Operation delayed
- ERROR_CANTCREATEPATH      // Can't create path
+    ERROR_WRONGVERSION   // Wrong chunk version
+    ERROR_CHUNKEXIST     // Chunk already exists
+    ERROR_NOSPACE        // No space left
+    ERROR_IO             // IO error
+    ERROR_BNUMTOOBIG     // Incorrect block number
+    ERROR_WRONGSIZE      // Incorrect size
+    ERROR_WRONGOFFSET    // Incorrect offset
+    ERROR_CANTCONNECT    // Can't connect
+    ERROR_WRONGCHUNKID   // Incorrect chunk id
+    ERROR_DISCONNECTED   // Disconnected
+    ERROR_CRC            // CRC error
+    ERROR_DELAYED        // Operation delayed
+    ERROR_CANTCREATEPATH // Can't create path
 
- ERROR_MISMATCH            // Data mismatch
+    ERROR_MISMATCH // Data mismatch
 
- ERROR_EROFS               // Read-only file system
- ERROR_QUOTA               // Quota exceeded
- ERROR_BADSESSIONID        // Bad session id
- ERROR_NOPASSWORD              // Password is needed
- ERROR_BADPASSWORD             // Incorrect password
+    ERROR_EROFS        // Read-only file system
+    ERROR_QUOTA        // Quota exceeded
+    ERROR_BADSESSIONID // Bad session id
+    ERROR_NOPASSWORD   // Password is needed
+    ERROR_BADPASSWORD  // Incorrect password
 
- ERROR_MAX
+    ERROR_MAX
 )
 
 // flags: "flags" fileld in "CUTOMA_FUSE_AQUIRE"
 const (
- WANT_READ  = 1
- WANT_WRITE  = 2
- AFTER_CREATE = 4
+    WANT_READ    = 1
+    WANT_WRITE   = 2
+    AFTER_CREATE = 4
 )
 
 // flags: "setmask" field in "CUTOMA_FUSE_SETATTR"
@@ -90,15 +90,15 @@ const (
 // instead of using FUSE_SETATTR with SET_GOAL_FLAG use FUSE_SETTRASH_TIMEOUT command
 // instead of using FUSE_SETATTR with SET_LENGTH_FLAG/SET_OPENED_FLAG use FUSE_TRUNCATE command
 const (
- SET_GOAL_FLAG          = 1 << iota
- SET_MODE_FLAG
- SET_UID_FLAG
- SET_GID_FLAG
- SET_LENGTH_FLAG
- SET_MTIME_FLAG
- SET_ATIME_FLAG
- SET_OPENED_FLAG
- SET_DELETE_FLAG
+    SET_GOAL_FLAG = 1 << iota
+    SET_MODE_FLAG
+    SET_UID_FLAG
+    SET_GID_FLAG
+    SET_LENGTH_FLAG
+    SET_MTIME_FLAG
+    SET_ATIME_FLAG
+    SET_OPENED_FLAG
+    SET_DELETE_FLAG
 )
 const ANTOAN_NOP = 0
 
@@ -163,7 +163,7 @@ const (
 
 
 const (
-    FUSE_REGISTER_BLOB_NOACL       = "kFh9mdZsR84l5e675v8bi54VfXaXSYozaU3DSz9AsLLtOtKipzb9aQNkxeOISx64"
+    FUSE_REGISTER_BLOB_NOACL = "kFh9mdZsR84l5e675v8bi54VfXaXSYozaU3DSz9AsLLtOtKipzb9aQNkxeOISx64"
     // CUTOMA:
     //  clientid:32 [ version:32 ]
     // MATOCU:
@@ -176,16 +176,16 @@ const (
     // MATOCU:
     //  status:8
 
-    FUSE_REGISTER_BLOB_ACL         = "DjI1GAQDULI5d2YjA26ypc3ovkhjvhciTQVx3CS4nYgtBoUcsljiVpsErJENHaw0"
+    FUSE_REGISTER_BLOB_ACL = "DjI1GAQDULI5d2YjA26ypc3ovkhjvhciTQVx3CS4nYgtBoUcsljiVpsErJENHaw0"
 
-    REGISTER_GETRANDOM  = uint8(1)
+    REGISTER_GETRANDOM = uint8(1)
     // rcode==1: generate random blob
     // CUTOMA:
     //  rcode:8
     // MATOCU:
     //  randomblob:32B
 
-    REGISTER_NEWSESSION  = uint8(2)
+    REGISTER_NEWSESSION = uint8(2)
     // rcode==2: first register
     // CUTOMA:
     //  rcode:8 version:32 ileng:32 info:ilengB pleng:32 path:plengB [ passcode:16B ]
@@ -435,10 +435,10 @@ const (
 
 
 var errtab = []string{
-    "OK", 
-    "Operation not permitted", 
+    "OK",
+    "Operation not permitted",
     "Not a directory",
-    "No such file or directory", 
+    "No such file or directory",
     "Permission denied",
     "File exists",
     "Invalid argument",
@@ -484,19 +484,19 @@ func mfs_strerror(code int) string {
 }
 
 const (
-     S_IFMT   = 0170000           /* type of file */
-     S_IFIFO  = 0010000  /* named pipe (fifo) */
-     S_IFCHR  = 0020000  /* character special */
-     S_IFDIR  = 0040000  /* directory */
-     S_IFBLK  = 0060000  /* block special */
-     S_IFREG  = 0100000  /* regular */
-     S_IFLNK  = 0120000  /* symbolic link */
-     S_IFSOCK = 0140000  /* socket */
-     S_IFWHT  = 0160000  /* whiteout */
-     S_ISUID  = 0004000  /* set user id on execution */
-     S_ISGID  = 0002000  /* set group id on execution */
-     S_ISVTX  = 0001000  /* save swapped text even after use */
-     S_IRUSR  = 0000400  /* read permission, owner */
-     S_IWUSR  = 0000200  /* write permission, owner */
-     S_IXUSR  = 0000100  /* execute/search permission, owner */
+    S_IFMT   = 0170000 /* type of file */
+    S_IFIFO  = 0010000 /* named pipe (fifo) */
+    S_IFCHR  = 0020000 /* character special */
+    S_IFDIR  = 0040000 /* directory */
+    S_IFBLK  = 0060000 /* block special */
+    S_IFREG  = 0100000 /* regular */
+    S_IFLNK  = 0120000 /* symbolic link */
+    S_IFSOCK = 0140000 /* socket */
+    S_IFWHT  = 0160000 /* whiteout */
+    S_ISUID  = 0004000 /* set user id on execution */
+    S_ISGID  = 0002000 /* set group id on execution */
+    S_ISVTX  = 0001000 /* save swapped text even after use */
+    S_IRUSR  = 0000400 /* read permission, owner */
+    S_IWUSR  = 0000200 /* write permission, owner */
+    S_IXUSR  = 0000100 /* execute/search permission, owner */
 )
