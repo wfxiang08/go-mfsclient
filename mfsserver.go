@@ -18,7 +18,11 @@ type mooseFS struct {
 
 func (fs *mooseFS) Open(name string) (http.File, os.Error) {
     f, err := fs.client.Open(name)
-    log.Println(name, f, err)
+    status := 200
+    if err != nil {
+        status = 404
+    }
+    log.Println(name, status)
     return f, err
 }
 
@@ -28,6 +32,7 @@ func main() {
     fs := mooseFS{moosefs.NewClient(*mfsmaster, *subdir)}
     http.Handle("/", http.FileServer(&fs))
 
+    log.Println("Listen on", *addr)
     err := http.ListenAndServe(*addr, nil)
     if err != nil {
         log.Fatal("ListenAndServe:", err)

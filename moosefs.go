@@ -25,6 +25,10 @@ type File struct {
     
     offset int64
     rbuf []byte
+    roff int64
+
+    dircache []os.FileInfo
+    dirnamecache []string
 
     woff  int64
     wbuf []byte
@@ -59,7 +63,7 @@ func (c *Client) lookup(name string, followSymlink bool) (uint32, os.Error) {
     if ss[0] == "" {
         parent = MFS_ROOT_ID
     }
-    for _,n := range ss {
+    for i,n := range ss {
         if len(n) == 0 {
             continue
         }
@@ -74,9 +78,12 @@ func (c *Client) lookup(name string, followSymlink bool) (uint32, os.Error) {
                 return 0, os.NewError("read link: " + err.String())
             }
             // TODO
+            if !strings.HasPrefix(target, "/") {
+                target = path.Join(strings.Join(ss[:i], "/"), target)
+            }
             inode, err = c.lookup(target, true)
             if err != nil {
-                return 0, os.NewError("follow :" + err.String())
+                return 0, os.NewError("follow :" + target + err.String())
             }
         }
         parent = inode
@@ -99,7 +106,7 @@ func (c *Client) OpenFile(name string, flag int, perm uint32) (file *File, err o
                 }
                 inode = uint32(fi.Ino)
             }else {
-                return nil, os.NewError("not exists")
+                return nil, err
             }
         }else{
             return nil, os.NewError("lookup failed: " + err.String())
@@ -284,11 +291,42 @@ func (f *File) Path() string {
     return f.path
 }
 
-func (f *File) Read(b []byte) (n int, err os.Error) {
-    n, err = f.ReadAt(b, uint64(f.offset))
-    if n > 0 {
-        f.offset += int64(n)
+func (f *File) Len() int64 {
+    fi, err := f.Stat()
+    if err != nil {
+        return 0
     }
+    return fi.Size
+}
+
+func (f *File) Read(b []byte) (n int, err os.Error) {
+    got := 0
+    for got < len(b) {
+        if f.offset >= f.roff && f.offset < f.roff + int64(len(f.rbuf)) {
+            n := min(len(b)-got, int(f.roff + int64(len(f.rbuf)) - f.offset))
+            copy(b[got:got+n], f.rbuf[f.offset-f.roff:f.offset-f.roff+int64(n)])
+            f.offset += int64(n)
+            got += n
+            if got == len(b) {
+                return got, nil
+            }
+        }
+
+        f.roff = f.offset
+        left := f.Len() - f.offset
+        rsize := int64(16 * 1024 * 1024)
+        if left < rsize {
+            rsize = left
+        }
+        f.rbuf = make([]byte, rsize)
+        n, err := f.ReadAt(f.rbuf, uint64(f.offset))
+//        println("readat", f.offset, rsize, n, err)
+        if n == 0 {
+            return got, err
+        }
+        f.rbuf = f.rbuf[:n]
+    }
+    panic("should not here")
     return
 }
 
@@ -345,10 +383,16 @@ func (f *File) Stat() (fi *os.FileInfo, err os.Error) {
 }
 
 func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
-    fi, err = f.client.mc.GetDirPlus(f.inode)
-    if err != nil {
-        return nil, err
+    if f.dircache == nil {
+        fi, err = f.client.mc.GetDirPlus(f.inode)
+        if err != nil {
+            return nil, err
+        }
+        f.dircache = fi
+    }else{
+        fi = f.dircache
     }
+
     if len(fi) < int(f.offset) {
         return nil, nil
     }
@@ -357,14 +401,21 @@ func (f *File) Readdir(count int) (fi []os.FileInfo, err os.Error) {
         fi = fi[:count]
     }
     f.offset += int64(len(fi))
+    //println("Readdir", f.path, f.offset, count, len(fi))
     return
 }
 
 func (f *File) Readdirnames(count int) (names []string, err os.Error) {
-    names, err = f.client.mc.GetDir(f.inode)
-    if err != nil {
-        return nil, err
+    if f.dirnamecache == nil {
+        names, err = f.client.mc.GetDir(f.inode)
+        if err != nil {
+            return nil, err
+        }
+        f.dirnamecache = names
+    }else{
+        names = f.dirnamecache
     }
+
     if len(names) < int(f.offset) {
         return nil, nil
     }

@@ -1,6 +1,7 @@
 package moosefs
 
 import (
+    "io"
     "os"
     "net"
     "bytes"
@@ -43,6 +44,7 @@ func (mc *MasterConn) Connect() (err os.Error) {
     println("dial tcp", mc.addr)
     mc.conn, err = net.Dial("tcp", mc.addr)
     if err != nil {
+        println("connect to ", mc.addr, err.String())
         return
     }
     defer func() {
@@ -128,7 +130,7 @@ func (mc *MasterConn) Unlock(caller string) {
 }
 
 func (mc *MasterConn) Read(b []byte) (int, os.Error) {
-    n, err := mc.conn.Read(b)
+    n, err := io.ReadFull(mc.conn, b)
 //    fmt.Println("<<<", b[:n])
     return n, err
 }
@@ -165,7 +167,7 @@ func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte,
     mc.Lock("sendandrecv")
     defer mc.Unlock("sendandrecv")
 
-    for i:=0; i<2; i++ {
+    for ii:=0; ii<2; ii++ {
         mc.Connect()
         if mc.conn == nil {
             return nil, os.NewError("session lost")
@@ -197,21 +199,25 @@ func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte,
             continue
 //            return nil, os.NewError(fmt.Sprintf("unexpected cmd:", cmd+1, rcmd))
         }
-        //println("got", rcmd, size)
-        if size > 4 {
-            buf = make([]byte, size-4)
-            var n int
-            if n,err = mc.Read(buf); err != nil || n < len(buf) {
-                mc.Close()
-                continue
-                //return nil, os.NewError("read error")
-            }
+        if size <= 4 {
+            mc.Close()
+            println("unexpected size:", size)
+            continue
+        }
+        buf = make([]byte, size-4)
+        if n, err := mc.Read(buf); err != nil {
+            mc.Close()
+            println("read response body failed", err.String())
+        }else{
             if n == 1 && buf[0] != 0 {
-                println("cmd", cmd, buf[0], Error(buf[0]).String())
+                //println("cmd", cmd, buf[0], Error(buf[0]).String())
                 return nil, Error(buf[0])
             }
+            return buf, nil
         }
-        return buf, nil
+    }
+    if err == nil {
+        err = os.NewError("IO Error")
     }
     return nil, err
 }
@@ -386,13 +392,13 @@ func (mc *MasterConn) GetDirPlus(inode uint32) (info []os.FileInfo, err os.Error
     if err != nil {
         return nil, err
     }
-    
     r := bytes.NewBuffer(ans)
     for r.Len() > 0 {
         var length uint8
         var inode uint32
         read(r, &length)
         if r.Len() < int(length + 39) {
+            println("broken getdirplus data")
             break
         }
         name := make([]byte, length)

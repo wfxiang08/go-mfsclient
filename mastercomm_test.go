@@ -6,7 +6,7 @@ import "testing"
 const testname = "test123"
 
 func TestMasterConn(t *testing.T) {
-    mc := NewMasterConn("localhost", "/")
+    mc := NewMasterConn("mfsmaster", "/")
     e := mc.Connect()
     if e != nil {
         t.Error("fs_connect failed", e.String())

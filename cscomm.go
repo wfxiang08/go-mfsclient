@@ -8,11 +8,16 @@ import (
     "hash/crc32"
     "strconv"
     "fmt"
+    "io"
 )
 
 type csConn struct {
     sync.Mutex
     net.Conn
+}
+
+func (cs *csConn) Read(b []byte) (int, os.Error) {
+    return io.ReadFull(cs.Conn, b)
 }
 
 var (
@@ -28,22 +33,7 @@ func newCSConn(csdata []byte, write bool) (conn *csConn, err os.Error) {
     // parse chunk server ip and port
     var ip uint32
     var port uint16
-    bestcnt := 0x1fffffff
-    r := bytes.NewBuffer(csdata)
-    for i:=0; i<len(csdata)/6; i++ {
-        var tmpip uint32
-        var tmpport uint16
-        read(r, &tmpip, &tmpport)
-        cnt := getOpCnt(tmpip)
-        if cnt < bestcnt {
-            ip = tmpip
-            port = tmpport
-            bestcnt = cnt
-        }
-        if write {
-            break
-        }
-    }
+    read(bytes.NewBuffer(csdata), &ip, &port)
     addr := fmt.Sprintf("%d.%d.%d.%d:%d", ip>>24, 0xff&(ip>>16), 0xff&(ip>>8), 0xff&ip, port)
 
     mutex.Lock()
@@ -60,6 +50,7 @@ func newCSConn(csdata []byte, write bool) (conn *csConn, err os.Error) {
     println("dial tcp", addr)
     conn.Conn, err = net.Dial("tcp", addr)
     if err != nil {
+        println("dial tcp", addr, err.String())
         return nil, err
     }
     return conn, nil
@@ -175,18 +166,28 @@ type Chunk struct {
 }
 
 func (ck *Chunk) Read(buf []byte, offset uint32) (int, os.Error){
-    cs, err := newCSConn(ck.csdata, false)
-    if err != nil {
-        return 0, err
-    }
+    csdata := ck.csdata
+//    println("read chunk", ck.id, ck.length, offset)
+    for len(csdata) > 0 {
+        for try:=0; try<2; try++ { 
+            cs, err := newCSConn(csdata, false)
+            if err != nil {
+                println("get conn failed", err.String())
+                break
+            }
 
-    n, err := cs.ReadBlock(ck.id, ck.version, buf, offset)
-    if err != nil {
-        cs.Close()
-    }else{
-        freeCSConn(cs)
+            n, err := cs.ReadBlock(ck.id, ck.version, buf, offset)
+            if err != nil {
+                println("read from ", cs.RemoteAddr().String(), " failed:", err.String())
+                cs.Close()
+            }else{
+                freeCSConn(cs)
+                return n, err
+            }
+        }
+        csdata = csdata[6:]
     }
-    return n, err
+    return 0, os.NewError("no chunk server avail")
 }
 
 func (ck *Chunk) Write(buf []byte, offset uint32) (int, os.Error) {

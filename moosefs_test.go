@@ -6,30 +6,6 @@ import (
     "os"
 )
 
-func TestOpen(t *testing.T) {
-    c := NewClient("localhost", "/")
-
-    f, err := c.Open("/test")
-    if err != nil || f == nil {
-        t.Error("open fail", err.String())
-        return
-    }
-    buf := make([]byte, 1024)
-    n, err := f.Read(buf)
-    if err != nil && err != os.EOF {
-        t.Error("read failed", err.String())
-    }
-    if n != 6 {
-        t.Error("length error:", n)
-    }
-    if string(buf[:n]) != "hello\n" {
-        t.Error("content eror:", string(buf[:n]))
-    }
-    f.Close()
-
-    c.Close()
-}
-
 func TestAPI(t *testing.T) {
     if err:=Chdir("/"); err != nil {
         t.Error("chdir fail")
