@@ -10,9 +10,9 @@ import (
     "runtime/pprof"
 )
 
-var addr = flag.String("addr", ":1718", "http service address")
+var addr = flag.String("addr", ":9500", "http service address")
 var mfsmaster = flag.String("mfsmaster", "mfsmaster", "the addr of mfsmaster")
-var subdir = flag.String("subdir", "/", "subdir in MFS as root")
+//var subdir = flag.String("subdir", "/", "subdir in MFS as root")
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 
 type mooseFS struct {
@@ -45,7 +45,7 @@ func main() {
         }()
     }
 
-    fs := &mooseFS{moosefs.NewClient(*mfsmaster, *subdir)}
+    fs := &mooseFS{moosefs.NewClient(*mfsmaster, "/")}
     //fs := http.Dir("/mfs")
     http.Handle("/", http.FileServer(fs))
 
