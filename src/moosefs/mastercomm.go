@@ -1,13 +1,14 @@
 package moosefs
 
 import (
-    "io"
-    "os"
-    "net"
     "bytes"
-    "sync"
+    "errors"
+    "io"
+    "net"
+    //	"os"
     "strconv"
     "strings"
+    "sync"
     //    "fmt"
     "time"
 )
@@ -33,7 +34,7 @@ func NewMasterConn(addr, subdir string) *MasterConn {
     return mc
 }
 
-func (mc *MasterConn) Connect() (err os.Error) {
+func (mc *MasterConn) Connect() (err error) {
     if mc.Conn != nil {
         return nil
     }
@@ -72,29 +73,34 @@ func (mc *MasterConn) Connect() (err os.Error) {
     r := bytes.NewBuffer(recv)
     read(r, &cmd, &i)
     if cmd != MATOCU_FUSE_REGISTER {
-        err = os.NewError("got incorrect answer from mfsmaster")
+        err = errors.New("got incorrect answer from mfsmaster")
         return
     }
-    if !(i == 1 || i == 13 || i == 21) {
-        err = os.NewError("got incorrect size from mfsmaster")
+    if !(i == 1 || i == 13 || i == 21 || i == 25 || i == 35) {
+        err = errors.New("got incorrect size from mfsmaster")
         return
     }
 
     buf := make([]byte, i)
     if n, e := mc.Read(buf); e != nil || n != int(i) {
         if e == nil {
-            e = os.NewError("unexpected end")
+            e = errors.New("mfsmaster connect: unexpected end")
         }
         err = e
         return
     }
     if i == 1 && buf[0] != 0 {
-        err = os.NewError("mfsmaster register error: " + mfs_strerror(int(buf[0])))
+        err = errors.New("mfsmaster register error: " + mfs_strerror(int(buf[0])))
         return
     }
     if mc.sessionid == 0 {
         r = bytes.NewBuffer(buf)
-        read(r, &mc.sessionid)
+        if i < 25 {
+            read(r, &mc.sessionid)
+        } else {
+            var _t uint32
+            read(r, &_t, &mc.sessionid)
+        }
         // read sesflags and uid ...
     }
     go func() {
@@ -115,17 +121,17 @@ func (mc *MasterConn) Close() {
     }
 }
 
-func (mc *MasterConn) Read(b []byte) (int, os.Error) {
+func (mc *MasterConn) Read(b []byte) (int, error) {
     n, err := io.ReadFull(mc.Conn, b)
     //    fmt.Println("<<<", b[:n])
     return n, err
 }
 
-func (mc *MasterConn) nop() os.Error {
+func (mc *MasterConn) nop() error {
     mc.Lock()
     defer mc.Unlock()
     if mc.Conn == nil {
-        return os.NewError("not connected")
+        return errors.New("not connected")
     }
     msg := pack(ANTOAN_NOP, uint32(0))
     if n, err := mc.Write(msg); err != nil || n != 12 {
@@ -135,7 +141,7 @@ func (mc *MasterConn) nop() os.Error {
     return nil
 }
 
-func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte, err os.Error) {
+func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte, err error) {
     packetid := uint32(1)
     nargs := make([]interface{}, len(args)+1)
     nargs[0] = packetid
@@ -149,7 +155,7 @@ func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte,
     for ii := 0; ii < 2; ii++ {
         mc.Connect()
         if mc.Conn == nil {
-            return nil, os.NewError("session lost")
+            return nil, errors.New("session lost")
         }
         if _, err = mc.Write(send_bytes); err != nil {
             mc.Close()
@@ -188,7 +194,7 @@ func (mc *MasterConn) sendAndReceive(cmd uint32, args ...interface{}) (r []byte,
         }
     }
     if err == nil {
-        err = os.NewError("IO Error")
+        err = errors.New("IO Error")
     }
     return nil, err
 }
@@ -201,7 +207,7 @@ type StatInfo struct {
     inodes        uint32
 }
 
-func (mc *MasterConn) StatFS() (*StatInfo, os.Error) {
+func (mc *MasterConn) StatFS() (*StatInfo, error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_STATFS)
     if err != nil {
         return nil, err
@@ -212,12 +218,12 @@ func (mc *MasterConn) StatFS() (*StatInfo, os.Error) {
     return &stat, nil
 }
 
-func (mc *MasterConn) Access(inode uint32, modemask uint8) (err os.Error) {
+func (mc *MasterConn) Access(inode uint32, modemask uint8) (err error) {
     _, err = mc.sendAndReceive(CUTOMA_FUSE_ACCESS, inode, mc.uid, mc.gid, modemask)
     return err
 }
 
-func (mc *MasterConn) Lookup(parent uint32, name string) (inode uint32, attr []byte, err os.Error) {
+func (mc *MasterConn) Lookup(parent uint32, name string) (inode uint32, attr []byte, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_LOOKUP, parent, uint8(len(name)), name, uint32(0), uint32(0))
     if err != nil {
         return 0, nil, err
@@ -226,7 +232,7 @@ func (mc *MasterConn) Lookup(parent uint32, name string) (inode uint32, attr []b
         return 0, nil, Error(ans[0])
     }
     if len(ans) != 39 {
-        return 0, nil, os.NewError("bad length")
+        return 0, nil, errors.New("bad length")
     }
     r := bytes.NewBuffer(ans[:4])
     read(r, &inode)
@@ -234,7 +240,7 @@ func (mc *MasterConn) Lookup(parent uint32, name string) (inode uint32, attr []b
     return
 }
 
-func (mc *MasterConn) GetAttr(inode uint32) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) GetAttr(inode uint32) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_GETATTR, inode, mc.uid, mc.gid)
     if err != nil {
         return nil, err
@@ -242,7 +248,7 @@ func (mc *MasterConn) GetAttr(inode uint32) (fi *os.FileInfo, err os.Error) {
     return attrToFileInfo(inode, ans), nil
 }
 
-func (mc *MasterConn) SetAttr(inode uint32, setmask uint8, mode uint16, attruid, attrgid, atime, mtime uint32) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) SetAttr(inode uint32, setmask uint8, mode uint16, attruid, attrgid, atime, mtime uint32) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_SETATTR, inode, mc.uid, mc.gid, setmask, mode, attruid, attrgid, atime, mtime)
     if err != nil {
         return nil, err
@@ -250,7 +256,7 @@ func (mc *MasterConn) SetAttr(inode uint32, setmask uint8, mode uint16, attruid,
     return attrToFileInfo(inode, ans), nil
 }
 
-func (mc *MasterConn) Truncate(inode uint32, opened uint8, length int64) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) Truncate(inode uint32, opened uint8, length int64) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_TRUNCATE, inode, opened, mc.uid, mc.gid, length)
     if err != nil {
         return nil, err
@@ -258,7 +264,7 @@ func (mc *MasterConn) Truncate(inode uint32, opened uint8, length int64) (fi *os
     return attrToFileInfo(inode, ans), nil
 }
 
-func (mc *MasterConn) ReadLink(inode uint32) (path string, err os.Error) {
+func (mc *MasterConn) ReadLink(inode uint32) (path string, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_READLINK, inode)
     if err != nil {
         return
@@ -266,78 +272,78 @@ func (mc *MasterConn) ReadLink(inode uint32) (path string, err os.Error) {
     var length uint32
     read(bytes.NewBuffer(ans[:4]), &length)
     if int(length+4) != len(ans) {
-        return "", os.NewError("invalid length")
+        return "", errors.New("invalid length")
     }
     return string(ans[4 : 4+length-1]), nil // path is ending with \000
 }
 
-func (mc *MasterConn) Symlink(parent uint32, name, path string) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) Symlink(parent uint32, name, path string) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_SYMLINK, parent, uint8(len(name)), name,
         uint32(len(path)+1), path, "\000", mc.uid, mc.gid)
     if err != nil {
         return
     }
     if len(ans) != 39 {
-        return nil, os.NewError("invalid length")
+        return nil, errors.New("invalid length")
     }
     var inode uint32
     read(bytes.NewBuffer(ans[:4]), &inode)
     return attrToFileInfo(inode, ans[4:]), nil
 }
 
-func (mc *MasterConn) Mknod(parent uint32, name string, type_ uint8, mode uint16, rdev uint32) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) Mknod(parent uint32, name string, type_ uint8, mode uint16, rdev uint32) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_MKNOD, parent, uint8(len(name)), name, type_, mode, mc.uid, mc.gid, rdev)
     if err != nil {
         return
     }
     if len(ans) != 39 {
-        return nil, os.NewError("invalid length")
+        return nil, errors.New("invalid length")
     }
     var inode uint32
     read(bytes.NewBuffer(ans[:4]), &inode)
     return attrToFileInfo(inode, ans[4:]), nil
 }
 
-func (mc *MasterConn) Mkdir(parent uint32, name string, mode uint16) (fi *os.FileInfo, err os.Error) {
+func (mc *MasterConn) Mkdir(parent uint32, name string, mode uint16) (fi *fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_MKDIR, parent, uint8(len(name)), name, mode, mc.uid, mc.gid)
     if err != nil {
         return
     }
     if len(ans) != 39 {
-        return nil, os.NewError("invalid length")
+        return nil, errors.New("invalid length")
     }
     var inode uint32
     read(bytes.NewBuffer(ans[:4]), &inode)
     return attrToFileInfo(inode, ans[4:]), nil
 }
 
-func (mc *MasterConn) Unlink(parent uint32, name string) os.Error {
+func (mc *MasterConn) Unlink(parent uint32, name string) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_UNLINK, parent, uint8(len(name)), name, mc.uid, mc.gid)
     return err
 }
 
-func (mc *MasterConn) Rmdir(parent uint32, name string) os.Error {
+func (mc *MasterConn) Rmdir(parent uint32, name string) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_RMDIR, parent, uint8(len(name)), name, mc.uid, mc.gid)
     return err
 }
 
-func (mc *MasterConn) Rename(parent_src uint32, name_src string, parent_dst uint32, name_dst string) os.Error {
+func (mc *MasterConn) Rename(parent_src uint32, name_src string, parent_dst uint32, name_dst string) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_RENAME, parent_src, uint8(len(name_src)), name_src,
         parent_dst, uint8(len(name_dst)), name_dst, mc.uid, mc.gid)
     return err
 }
 
-func (mc *MasterConn) Link(inode_src, parent_dst uint32, name_dst string) (inode uint32, attr []byte, err os.Error) {
+func (mc *MasterConn) Link(inode_src, parent_dst uint32, name_dst string) (inode uint32, attr []byte, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_LINK, inode_src, parent_dst, uint8(len(name_dst)), name_dst, mc.uid, mc.gid)
     if len(ans) != 39 {
-        return 0, nil, os.NewError("invalid length")
+        return 0, nil, errors.New("invalid length")
     }
     read(bytes.NewBuffer(ans[:4]), &inode)
     attr = ans[4:]
     return
 }
 
-func (mc *MasterConn) GetDir(inode uint32) (names []string, err os.Error) {
+func (mc *MasterConn) GetDir(inode uint32) (names []string, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_GETDIR, inode, mc.uid, mc.gid)
     if err != nil {
         return nil, err
@@ -358,7 +364,7 @@ func (mc *MasterConn) GetDir(inode uint32) (names []string, err os.Error) {
     return
 }
 
-func (mc *MasterConn) GetDirPlus(inode uint32) (info []os.FileInfo, err os.Error) {
+func (mc *MasterConn) GetDirPlus(inode uint32) (info []*fileStat, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_GETDIR, inode, mc.uid, mc.gid, uint8(GETDIR_FLAG_WITHATTR))
     if err != nil {
         return nil, err
@@ -376,12 +382,12 @@ func (mc *MasterConn) GetDirPlus(inode uint32) (info []os.FileInfo, err os.Error
         r.Read(name)
         read(r, &inode)
         r.Read(attr)
-        info = append(info, *newFileInfo(string(name), inode, attr))
+        info = append(info, newFileInfo(string(name), inode, attr))
     }
     return
 }
 
-func (mc *MasterConn) OpenCheck(inode uint32, flag uint8) (attr []byte, err os.Error) {
+func (mc *MasterConn) OpenCheck(inode uint32, flag uint8) (attr []byte, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_OPEN, inode, mc.uid, mc.gid, flag)
     if err != nil {
         return nil, err
@@ -389,18 +395,18 @@ func (mc *MasterConn) OpenCheck(inode uint32, flag uint8) (attr []byte, err os.E
     return ans, nil
 }
 
-func (mc *MasterConn) Release(inode uint32) os.Error {
+func (mc *MasterConn) Release(inode uint32) error {
     return nil
 }
 
-func (mc *MasterConn) ReadChunk(inode uint32, indx uint32) (info *Chunk, err os.Error) {
+func (mc *MasterConn) ReadChunk(inode uint32, indx uint32) (info *Chunk, err error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_READ_CHUNK, inode, indx)
     if err != nil {
         return nil, err
     }
     n := len(ans)
     if n < 20 || (n-20)%6 != 0 {
-        return nil, os.NewError("read chunk: invalid length: " + strconv.Itoa(n))
+        return nil, errors.New("read chunk: invalid length: " + strconv.Itoa(n))
     }
     info = new(Chunk)
     r := bytes.NewBuffer(ans)
@@ -409,13 +415,13 @@ func (mc *MasterConn) ReadChunk(inode uint32, indx uint32) (info *Chunk, err os.
     return info, nil
 }
 
-func (mc *MasterConn) WriteChunk(inode, indx uint32) (*Chunk, os.Error) {
+func (mc *MasterConn) WriteChunk(inode, indx uint32) (*Chunk, error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_WRITE_CHUNK, inode, indx)
     if err != nil {
         return nil, err
     }
     if len(ans) < 20 || (len(ans)-20)%6 != 0 {
-        return nil, os.NewError("invalid length")
+        return nil, errors.New("invalid length")
     }
     var info Chunk
     r := bytes.NewBuffer(ans)
@@ -424,7 +430,7 @@ func (mc *MasterConn) WriteChunk(inode, indx uint32) (*Chunk, os.Error) {
     return &info, nil
 }
 
-func (mc *MasterConn) WriteEnd(chunkid uint64, inode uint32, length uint64) os.Error {
+func (mc *MasterConn) WriteEnd(chunkid uint64, inode uint32, length uint64) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_WRITE_CHUNK_END, chunkid, inode, length)
     return err
 }
@@ -443,15 +449,15 @@ func NewMasterMetaConn(addr string) *MasterMetaConn {
 }
 
 // connect as meta
-func (mc *MasterMetaConn) Connect() (err os.Error) {
+func (mc *MasterMetaConn) Connect() (err error) {
     return mc.MasterConn.Connect()
 }
 
-func (mc *MasterMetaConn) GetReserved() ([]byte, os.Error) {
+func (mc *MasterMetaConn) GetReserved() ([]byte, error) {
     return mc.sendAndReceive(CUTOMA_FUSE_GETRESERVED)
 }
 
-func (mc *MasterMetaConn) GetTrash() (map[uint32]string, os.Error) {
+func (mc *MasterMetaConn) GetTrash() (map[uint32]string, error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_GETTRASH)
     if err != nil {
         return nil, err
@@ -471,11 +477,11 @@ func (mc *MasterMetaConn) GetTrash() (map[uint32]string, os.Error) {
     return rs, nil
 }
 
-func (mc *MasterMetaConn) GetDetachedAttr(inode uint32) (attr []byte, err os.Error) {
+func (mc *MasterMetaConn) GetDetachedAttr(inode uint32) (attr []byte, err error) {
     return mc.sendAndReceive(CUTOMA_FUSE_GETDETACHEDATTR, inode)
 }
 
-func (mc *MasterMetaConn) GetTrashPath(inode uint32) (string, os.Error) {
+func (mc *MasterMetaConn) GetTrashPath(inode uint32) (string, error) {
     ans, err := mc.sendAndReceive(CUTOMA_FUSE_GETTRASHPATH, inode)
     if err != nil {
         return "", err
@@ -483,22 +489,22 @@ func (mc *MasterMetaConn) GetTrashPath(inode uint32) (string, os.Error) {
     var l uint32
     read(bytes.NewBuffer(ans[:4]), &l)
     if len(ans) != int(l+4) {
-        return "", os.NewError("length not match")
+        return "", errors.New("length not match")
     }
     return string(ans[4:]), nil
 }
 
-func (mc *MasterMetaConn) SetTrashPath(inode uint32, path string) os.Error {
+func (mc *MasterMetaConn) SetTrashPath(inode uint32, path string) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_SETTRASHPATH, inode, uint32(len(path)+1), path, "\000")
     return err
 }
 
-func (mc *MasterMetaConn) Undel(inode uint32) os.Error {
+func (mc *MasterMetaConn) Undel(inode uint32) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_UNDEL, inode)
     return err
 }
 
-func (mc *MasterMetaConn) Purge(inode uint32) os.Error {
+func (mc *MasterMetaConn) Purge(inode uint32) error {
     _, err := mc.sendAndReceive(CUTOMA_FUSE_PURGE, inode)
     return err
 }

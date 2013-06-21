@@ -1,16 +1,16 @@
-all: fmt mfsserver
+all: mfsserver
 
-include $(GOROOT)/src/Make.inc
-
-TARG=moosefs
-GOFILES=moosefs.go consts.go mastercomm.go cscomm.go utils.go csdb.go\
-
-include $(GOROOT)/src/Make.pkg
+GOPATH:=$(CURDIR)
+export GOPATH
 
 fmt:
-	gofmt -w -l -spaces=true -tabwidth=4 -tabindent=false *.go
+	gofmt -w -s=true -l -tabs=false -tabwidth=4 src/*/*.go
 
-mfsserver: _obj/moosefs.a mfsserver.go
-	$(GC) mfsserver.go
-	$(LD) -o mfsserver mfsserver.$(O)
+moosefs: fmt
+	go install moosefs
 
+mfsserver: moosefs
+	go build mfsserver
+
+test:
+	go test moosefs

@@ -13,7 +13,7 @@ const VERSION = uint32(0x01F1F5)
 
 const GETDIR_FLAG_WITHATTR = 0x01
 
-//type for readdir command 
+//type for readdir command
 const (
     TYPE_FILE      = 'f'
     TYPE_SYMLINK   = 'l'
@@ -160,7 +160,6 @@ const (
 
 // NAME type:
 // ( leng:8 data:lengB )
-
 
 const (
     FUSE_REGISTER_BLOB_NOACL = "kFh9mdZsR84l5e675v8bi54VfXaXSYozaU3DSz9AsLLtOtKipzb9aQNkxeOISx64"
@@ -312,12 +311,10 @@ const (
     MATOCU_FUSE_WRITE_CHUNK_END = 437
     // msgid:32 status:8
 
-
     CUTOMA_FUSE_APPEND = 438
     // msgid:32 inode:32 srcinode:32 uid:32 gid:32 - append to existing element
     MATOCU_FUSE_APPEND = 439
     // msgid:32 status:8
-
 
     CUTOMA_FUSE_CHECK = 440
     // msgid:32 inode:32
@@ -432,7 +429,6 @@ const (
     CUTOMA_FUSE_RESERVED_INODES = 499
     // N*[inode:32]
 )
-
 
 var errtab = []string{
     "OK",

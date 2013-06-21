@@ -1,16 +1,17 @@
 package moosefs
 
 import (
-    "io"
-    "os"
     "bytes"
     "encoding/binary"
+    "io"
+    "os"
     "reflect"
+    "time"
 )
 
 type Error byte
 
-func (e Error) String() string {
+func (e Error) Error() string {
     return mfs_strerror(int(e))
 }
 
@@ -62,65 +63,68 @@ func pack(cmd uint32, args ...interface{}) []byte {
     return w.Bytes()
 }
 
-func attrToFileInfo(inode uint32, attr []byte) *os.FileInfo {
+// A fileStat is the implementation of FileInfo returned by Stat and Lstat.
+type fileStat struct {
+    inode   uint64
+    uid     int
+    gid     int
+    name    string
+    size    int64
+    mode    os.FileMode
+    aTime   time.Time
+    modTime time.Time
+    cTime   time.Time
+    sys     interface{}
+}
+
+func (fs *fileStat) Name() string       { return fs.name }
+func (fs *fileStat) Size() int64        { return fs.size }
+func (fs *fileStat) Mode() os.FileMode  { return fs.mode }
+func (fs *fileStat) ModTime() time.Time { return fs.modTime }
+func (fs *fileStat) IsDir() bool        { return fs.mode.IsDir() }
+func (fs *fileStat) IsSymlink() bool    { return fs.mode&os.ModeSymlink != 0 }
+func (fs *fileStat) Sys() interface{}   { return fs.sys }
+
+func attrToFileInfo(inode uint32, attr []byte) *fileStat {
     if len(attr) != 35 {
         panic("invalid length")
     }
-    fi := new(os.FileInfo)
+    var fi fileStat
     r := bytes.NewBuffer(attr)
     var type_ uint8
     var mode uint16
     var uid, gid, atime, mtime, ctime, nlink uint32
     read(r, &type_, &mode, &uid, &gid, &atime, &mtime, &ctime, &nlink)
 
-    fi.Ino = uint64(inode)
-    fi.Nlink = uint64(nlink)
-    fi.Mode = uint32(mode)
-    fi.Uid = int(uid)
-    fi.Gid = int(gid)
-    fi.Atime_ns = int64(atime) * 1e9
-    fi.Mtime_ns = int64(mtime) * 1e9
-    fi.Ctime_ns = int64(ctime) * 1e9
+    fi.inode = uint64(inode)
+    fi.mode = os.FileMode(mode & 07777)
+    fi.uid = int(uid)
+    fi.gid = int(gid)
+    fi.aTime = time.Unix(int64(atime), 0)
+    fi.modTime = time.Unix(int64(mtime), 0)
+    fi.cTime = time.Unix(int64(ctime), 0)
 
-    fi.Size = 0
-    fi.Blocks = 0
-    fi.Blksize = 0x10000
+    fi.size = 0
     switch type_ {
     case TYPE_DIRECTORY, TYPE_SYMLINK, TYPE_FILE:
         switch type_ {
         case TYPE_DIRECTORY:
-            fi.Mode = uint32(mode&07777) | S_IFDIR
+            fi.mode |= os.ModeDir
         case TYPE_SYMLINK:
-            fi.Mode = uint32(mode&07777) | S_IFLNK
+            fi.mode |= os.ModeSymlink
         case TYPE_FILE:
-            fi.Mode = uint32(mode&07777) | S_IFREG
+            var length int64
+            read(r, &length)
+            fi.size = length
         }
-        var length int64
-        read(r, &length)
-        fi.Size = length
-        fi.Blocks = (length + 511) / 512
-    case TYPE_FIFO:
-        fi.Mode = uint32(mode&07777) | S_IFIFO
-    case TYPE_SOCKET:
-        fi.Mode = uint32(mode&07777) | S_IFSOCK
-    case TYPE_BLOCKDEV:
-        fi.Mode = uint32(mode&07777) | S_IFBLK
-        var rdev uint32
-        read(r, &rdev)
-        fi.Rdev = uint64(rdev)
-    case TYPE_CHARDEV:
-        fi.Mode = uint32(mode&07777) | S_IFCHR
-        var rdev uint32
-        read(r, &rdev)
-        fi.Rdev = uint64(rdev)
     default:
-        fi.Mode = 0
+        fi.mode = 0
     }
-    return fi
+    return &fi
 }
 
-func newFileInfo(name string, inode uint32, attr []byte) *os.FileInfo {
+func newFileInfo(name string, inode uint32, attr []byte) *fileStat {
     fi := attrToFileInfo(inode, attr)
-    fi.Name = name
+    fi.name = name
     return fi
 }
