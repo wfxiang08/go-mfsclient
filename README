@@ -1,16 +1,18 @@
 this is a client library for MooseFS [1], and a web server (mfsserver) 
-to serve files from MooseFS.
+to serve files in MooseFS.
 
-Before you have a try, you should install a recent Go release first, then:
+You should install a recent Go release first, then:
 
 $ git clone https://github.com/davies/go-mfsclient
 $ cd go-mfsclient
 $ make
 $ ./mfsserver -h 
 Usage of ./mfsserver:
-  -addr=":9500": http service address
+  -cache=false: enable inode cache
   -cpuprofile="": write cpu profile to file
-  -mfsmaster="mfsmaster": the addr of mfsmaster
+  -listen=":9500": http service address
+  -local="": use local dir instead
+  -mfsmaster="mfsmaster": the listen of mfsmaster
 
 ** mounting subdir is NOT supported now, will been added later.
 
